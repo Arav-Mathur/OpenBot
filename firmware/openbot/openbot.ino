@@ -54,7 +54,7 @@
 //------------------------------------------------------//
 
 // Setup the OpenBot version (DIY, PCB_V1, PCB_V2, RTR_TT, RC_CAR, LITE, RTR_TT2, RTR_520, DIY_ESP32)
-#define OPENBOT DIY
+#define OPENBOT DIY_ESP32
 
 //------------------------------------------------------//
 // SETTINGS - Global settings
@@ -69,7 +69,10 @@
 #define NO_PHONE_MODE 0
 
 // Enable/Disable debug print (1,0)
-#define DEBUG 0
+// 1 prints every parsed command ("Control: 128,128") plus a vehicle-data block once a second -
+// that is how you tell "the sketch never saw the command" apart from "the motors did not move".
+// Set back to 0 for the demo: it is serial traffic the phone does not need.
+#define DEBUG 1
 
 // Enable/Disable coast mode (1,0)
 // When no control is applied, the robot will either coast (1) or actively stop (0)
@@ -475,6 +478,25 @@ const int LHS_PWM_OUT = 0;
 const int RHS_PWM_OUT = 1;
 
 //-------------------------DIY_ESP32----------------------//
+// 4WD chassis (4x TT motors, one L298N) driven by an ESP32-S3 (Freenove ESP32-S3-WROOM CAM).
+//
+// The L298N is wired the classic way: ENA/ENB carry the PWM (speed), IN1-IN4 the direction.
+// There are no jumpers on ENA/ENB - both are driven from the ESP32.
+//   ESP32 GPIO14 -> ENA        GPIO21 -> IN1, GPIO47 -> IN2    left motors  -> OUT1 / OUT2
+//   ESP32 GPIO1  -> ENB        GPIO42 -> IN3, GPIO41 -> IN4    right motors -> OUT3 / OUT4
+//   Forward on a channel = IN_A HIGH and IN_B LOW; reverse is the other way round.
+//   A side that spins the wrong way only needs its two motor leads swapped on OUTx.
+//   Two motors on one L298N channel can get hot; if yours does, unplug the rear pair (runs 2WD).
+//
+// ESP32-S3 pin limits (why nothing else is used here):
+//   GPIO22-GPIO25 do not exist on the S3; GPIO26-GPIO37 are wired to flash/PSRAM;
+//   GPIO19/GPIO20 are native USB; GPIO43/GPIO44 are UART0 to the CH343 bridge;
+//   GPIO0/GPIO3/GPIO45/GPIO46 are strapping pins; GPIO2 drives the on-board LED;
+//   GPIO4-GPIO13 and GPIO15-GPIO18 belong to the camera connector.
+//
+// No sensors are fitted: sonar, ToF, encoders, LEDs and the battery divider are all disabled.
+// Pins still free if you add something later: GPIO38, GPIO39, GPIO40, GPIO48 - plus the whole
+// 4-13 / 15-18 range if you unplug the camera module.
 #elif (OPENBOT == DIY_ESP32)
 const String robot_type = "DIY_ESP32";
 #define MCU ESP32
@@ -484,55 +506,53 @@ const String robot_type = "DIY_ESP32";
 #define attachPinChangeInterrupt attachInterrupt
 #define detachPinChangeInterrupt detachInterrupt
 #define digitalPinToPinChangeInterrupt digitalPinToInterrupt
-#define PIN_PWM_L1 CH_PWM_L1
-#define PIN_PWM_L2 CH_PWM_L2
-#define PIN_PWM_R1 CH_PWM_R1
-#define PIN_PWM_R2 CH_PWM_R2
-#define HAS_VOLTAGE_DIVIDER 1
+#define HAS_VOLTAGE_DIVIDER 0
 const float VOLTAGE_DIVIDER_FACTOR = (30 + 10) / 10;
 const float VOLTAGE_MIN = 6.0f;
 const float VOLTAGE_LOW = 9.0f;
 const float VOLTAGE_MAX = 12.6f;
 const float ADC_FACTOR = 3.3 / 4095;
-#define HAS_INDICATORS 1
-#define HAS_SONAR 1
+#define HAS_INDICATORS 0
+#define HAS_SONAR 0
 #define SONAR_MEDIAN 0
-#define HAS_SPEED_SENSORS_FRONT 1
-//PWM properties
+#define HAS_SPEED_SENSORS_FRONT 0
+//PWM properties: the enable pins are attached to these LEDC channels in setup()
 const int FREQ = 5000;
 const int RES = 8;
-const int CH_PWM_L1 = 0;
-const int CH_PWM_L2 = 1;
-const int CH_PWM_R1 = 2;
-const int CH_PWM_R2 = 3;
+const int CH_ENA = 0;
+const int CH_ENB = 1;
 const int CH_LED_LF = 4;
 const int CH_LED_RF = 5;
 const int CH_LED_LB = 6;
 const int CH_LED_RB = 7;
-const int PIN_PWM_LF1 = 13;
-const int PIN_PWM_LF2 = 12;
-const int PIN_PWM_LB1 = 13;
-const int PIN_PWM_LB2 = 12;
-const int PIN_PWM_RF1 = 15;
-const int PIN_PWM_RF2 = 2;
-const int PIN_PWM_RB1 = 15;
-const int PIN_PWM_RB2 = 2;
-const int PIN_SPEED_LF = 35;
-const int PIN_SPEED_LB = 34;
-const int PIN_SPEED_RF = 22;
-const int PIN_SPEED_RB = 23;
-const int PIN_VIN = 4;
-const int PIN_TRIGGER = 5;
-const int PIN_ECHO = 18;
-const int PIN_LED_LI = 5;
-const int PIN_LED_RI = 18;
-const int PIN_LED_LB = 5;
-const int PIN_LED_RB = 18;
-const int PIN_LED_LF = 19;
-const int PIN_LED_RF = 21;
-const int PIN_LED_Y = 14;
-const int PIN_LED_G = 27;
-const int PIN_LED_B = 26;
+// L298N pins
+const int PIN_ENA = 14;    // left speed (PWM)
+const int PIN_IN_L1 = 21;  // left direction
+const int PIN_IN_L2 = 47;  // left direction
+const int PIN_ENB = 1;     // right speed (PWM)
+const int PIN_IN_R1 = 42;  // right direction
+const int PIN_IN_R2 = 41;  // right direction
+// The right pair's leads ended up mirrored on this chassis. With 1, the firmware inverts that
+// channel's direction levels - electrically identical to swapping the two motor leads on
+// OUT3/OUT4. Set to 0 if you ever swap the leads in hardware, so the two fixes never stack.
+#define RIGHT_MOTORS_INVERTED 1
+// Not fitted - left here so the flags above can be switched on without touching the sketch.
+const int PIN_VIN = 2;
+const int PIN_TRIGGER = 38;
+const int PIN_ECHO = 39;
+const int PIN_SPEED_LF = 48;
+const int PIN_SPEED_LB = 48;
+const int PIN_SPEED_RF = 2;
+const int PIN_SPEED_RB = 2;
+const int PIN_LED_LI = 40;
+const int PIN_LED_RI = 48;
+const int PIN_LED_LB = 40;
+const int PIN_LED_RB = 48;
+const int PIN_LED_LF = 40;
+const int PIN_LED_RF = 48;
+const int PIN_LED_Y = 48;
+const int PIN_LED_G = 2;
+const int PIN_LED_B = 40;
 #endif
 //------------------------------------------------------//
 
@@ -540,7 +560,7 @@ const int PIN_LED_B = 26;
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
-#include <BLE2902.h>
+#include <BLE2902.h>/btw
 
 BLEServer *bleServer = NULL;
 BLECharacteristic *pTxCharacteristic;
@@ -845,7 +865,7 @@ void setup() {
   esp_wifi_deinit();
 #endif
 
-#if (MCU == ESP32 && OPENBOT != MTV)
+#if (MCU == ESP32 && OPENBOT != MTV && OPENBOT != DIY_ESP32)
   // PWMs
   // Configure PWM functionalitites
   ledcSetup(CH_PWM_L1, FREQ, RES);
@@ -877,6 +897,25 @@ void setup() {
   ledcAttachPin(PIN_LED_RF, CH_LED_RF);
 #endif
 
+#endif
+
+#if (OPENBOT == DIY_ESP32)
+  // ENA/ENB carry the PWM; IN1-IN4 are plain direction outputs.
+  ledcSetup(CH_ENA, FREQ, RES);
+  ledcSetup(CH_ENB, FREQ, RES);
+  ledcAttachPin(PIN_ENA, CH_ENA);
+  ledcAttachPin(PIN_ENB, CH_ENB);
+  ledcWrite(CH_ENA, 0);
+  ledcWrite(CH_ENB, 0);
+
+  pinMode(PIN_IN_L1, OUTPUT);
+  pinMode(PIN_IN_L2, OUTPUT);
+  pinMode(PIN_IN_R1, OUTPUT);
+  pinMode(PIN_IN_R2, OUTPUT);
+  digitalWrite(PIN_IN_L1, LOW);
+  digitalWrite(PIN_IN_L2, LOW);
+  digitalWrite(PIN_IN_R1, LOW);
+  digitalWrite(PIN_IN_R2, LOW);
 #endif
 
 #if (OPENBOT == MTV)
@@ -1193,6 +1232,74 @@ void stop_right_motors_mtv() {
 void coast_right_motors_mtv() {
   ledcWrite(RHS_PWM_OUT, 0);
   digitalWrite(PIN_DIR_R, LOW);
+}
+
+#elif (OPENBOT == DIY_ESP32)
+// Classic L298N drive: ENA/ENB are the PWM speed inputs, IN1-IN4 set the direction.
+void update_left_motors() {
+  if (ctrl_left < 0) {
+    digitalWrite(PIN_IN_L1, LOW);
+    digitalWrite(PIN_IN_L2, HIGH);
+    ledcWrite(CH_ENA, -ctrl_left);
+  } else if (ctrl_left > 0) {
+    digitalWrite(PIN_IN_L1, HIGH);
+    digitalWrite(PIN_IN_L2, LOW);
+    ledcWrite(CH_ENA, ctrl_left);
+  } else {
+    if (coast_mode) {
+      coast_left_motors();
+    } else {
+      stop_left_motors();
+    }
+  }
+}
+
+void stop_left_motors() {
+  // Brake: both inputs high with the enable on.
+  digitalWrite(PIN_IN_L1, HIGH);
+  digitalWrite(PIN_IN_L2, HIGH);
+  ledcWrite(CH_ENA, 255);
+}
+
+void coast_left_motors() {
+  // Coast: enable low, the channel is let go.
+  digitalWrite(PIN_IN_L1, LOW);
+  digitalWrite(PIN_IN_L2, LOW);
+  ledcWrite(CH_ENA, 0);
+}
+
+void update_right_motors() {
+  // RIGHT_MOTORS_INVERTED flips which input is driven for "forward" on this channel.
+  const int forwardA = RIGHT_MOTORS_INVERTED ? LOW : HIGH;
+  const int forwardB = RIGHT_MOTORS_INVERTED ? HIGH : LOW;
+
+  if (ctrl_right < 0) {
+    digitalWrite(PIN_IN_R1, forwardB);
+    digitalWrite(PIN_IN_R2, forwardA);
+    ledcWrite(CH_ENB, -ctrl_right);
+  } else if (ctrl_right > 0) {
+    digitalWrite(PIN_IN_R1, forwardA);
+    digitalWrite(PIN_IN_R2, forwardB);
+    ledcWrite(CH_ENB, ctrl_right);
+  } else {
+    if (coast_mode) {
+      coast_right_motors();
+    } else {
+      stop_right_motors();
+    }
+  }
+}
+
+void stop_right_motors() {
+  digitalWrite(PIN_IN_R1, HIGH);
+  digitalWrite(PIN_IN_R2, HIGH);
+  ledcWrite(CH_ENB, 255);
+}
+
+void coast_right_motors() {
+  digitalWrite(PIN_IN_R1, LOW);
+  digitalWrite(PIN_IN_R2, LOW);
+  ledcWrite(CH_ENB, 0);
 }
 
 #else
